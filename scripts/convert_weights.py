@@ -1,11 +1,23 @@
 """
 Reads Darknet config and weights and creates Keras model with TF backend.
 
-    wget -O ../model_data/tiny-yolo.weights  https://pjreddie.com/media/files/tiny-yolo.weights  --progress=bar:force:noscroll
+    wget -O ../model_data/yolo.weights  https://pjreddie.com/media/files/yolov3.weights  --progress=bar:force:noscroll
+    python convert_weights.py \
+        --config_path ../model_data/yolo.cfg \
+        --weights_path ../model_data/yolo.weights \
+        --output_path ../model_data/yolo.h5
+    wget -O ../model_data/tiny-yolo.weights  https://pjreddie.com/media/files/yolov3-tiny.weights  --progress=bar:force:noscroll
     python convert_weights.py \
         --config_path ../model_data/tiny-yolo.cfg \
         --weights_path ../model_data/tiny-yolo.weights \
         --output_path ../model_data/tiny-yolo.h5
+
+.. note:: For this conversion is GPu not needed and it may limit cause crashing
+ if you GPU memory is not sufficiently large. So we recommend to run this without GPU completly
+ setting `CUDA_VISIBLE_DEVICES=-1` nd then sun this script.
+
+.. note:: double check that you are working with last version of YOLO v3 model
+ (created after March 25 2018, yolov3.weights and/or yolov3-tiny.weights)
 
 """
 
@@ -17,6 +29,7 @@ import logging
 import configparser
 from collections import defaultdict
 
+import tqdm
 import numpy as np
 from keras import backend as K
 from keras.layers import (Conv2D, Input, ZeroPadding2D, Add,
@@ -258,7 +271,7 @@ def _main(config_path, weights_path, output_path, weights_only, plot_model):
                          ) if 'net_0' in cfg_parser.sections() else 5e-4
     count = 0
     out_index = []
-    for section in cfg_parser.sections():
+    for section in tqdm.tqdm(cfg_parser.sections()):
         logging.info('Parsing section "%s"', section)
         (all_layers, cfg_parser, section, prev_layer,
          weights_file, count, weight_decay, out_index) = parse_section(
