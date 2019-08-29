@@ -8,11 +8,6 @@ https://github.com/pypa/sampleproject
 # Always prefer setuptools over distutils
 from os import path
 from setuptools import setup
-# io.open is needed for projects that support Python 2.7
-# It ensures open() defaults to text mode with universal newlines,
-# and accepts an argument to specify the text encoding
-# Python 3 only projects can skip this import
-from io import open
 
 
 # Arguments marked as "Required" below must be included for upload to PyPI.
@@ -20,7 +15,7 @@ from io import open
 def _parse_requirements(file_path):
     with open(file_path) as fp:
         reqs = [r.rstrip() for r in fp.readlines() if not r.startswith('#')]
-        return reqs
+    return reqs
 
 
 HERE = path.abspath(path.dirname(__file__))

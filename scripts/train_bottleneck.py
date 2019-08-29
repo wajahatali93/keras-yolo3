@@ -78,7 +78,9 @@ def _main(path_dataset, path_anchors, path_weights=None, path_output='.',
                               nb_classes=nb_classes,
                               **config['generator'])
 
-    if config['epochs']['bottlenecks'] > 0 or config['epochs']['head'] > 0:
+    epochs_head = config['epochs'].get('head', 0)
+    epochs_btnc = config['epochs'].get('bottlenecks', 0)
+    if epochs_btnc > 0 or epochs_head > 0:
         # perform bottleneck training
         path_bottlenecks = os.path.join(path_output, NAME_BOTTLENECKS)
         if not os.path.isfile(path_bottlenecks) or config['recompute-bottlenecks']:
@@ -106,7 +108,7 @@ def _main(path_dataset, path_anchors, path_weights=None, path_output='.',
             steps_per_epoch=max(1, num_train // config['batch-size']['bottlenecks']),
             validation_data=_data_gene_bottleneck(lines_valid, bottlenecks=bottlenecks_val),
             validation_steps=max(1, num_val // config['batch-size']['bottlenecks']),
-            epochs=config['epochs']['bottlenecks'],
+            epochs=epochs_btnc,
             initial_epoch=0,
             max_queue_size=1)
         _export_model(model, path_output, '', '_bottleneck')
@@ -122,15 +124,15 @@ def _main(path_dataset, path_anchors, path_weights=None, path_output='.',
             steps_per_epoch=max(1, num_train // config['batch-size']['head']),
             validation_data=_data_generator(lines_valid, batch_size=config['batch-size']['head']),
             validation_steps=max(1, num_val // config['batch-size']['head']),
-            epochs=config['epochs']['head'],
-            initial_epoch=0,
+            epochs=epochs_btnc + epochs_head,
+            initial_epoch=epochs_btnc,
             callbacks=[log_tb, checkpoint])
         logging.info('Training took %f minutes', (time.time() - t_start) / 60.)
-        _export_model(model, path_output, '', '_body')
+        _export_model(model, path_output, '', '_head')
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
-    if config['epochs']['full'] > 0:
+    if config['epochs'].get('full', 0) > 0:
         for i in range(len(model.layers)):
             model.layers[i].trainable = True
         model.compile(optimizer=Adam(lr=1e-4),
@@ -146,8 +148,8 @@ def _main(path_dataset, path_anchors, path_weights=None, path_output='.',
             steps_per_epoch=max(1, num_train // config['batch-size']['full']),
             validation_data=_data_generator(lines_valid, batch_size=config['batch-size']['full']),
             validation_steps=max(1, num_val // config['batch-size']['full']),
-            epochs=config['epochs']['full'],
-            initial_epoch=config['epochs']['head'],
+            epochs=epochs_btnc + epochs_head + config['epochs']['full'],
+            initial_epoch=epochs_btnc + epochs_head,
             callbacks=[log_tb, checkpoint, reduce_lr, early_stopping])
         logging.info('Training took %f minutes', (time.time() - t_start) / 60.)
         _export_model(model, path_output, '', '_final')

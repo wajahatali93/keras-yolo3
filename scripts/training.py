@@ -179,7 +179,7 @@ def _main(path_dataset, path_anchors, path_weights=None, path_output='.',
                             initial_epoch=0,
                             callbacks=[tb_logging, checkpoint, reduce_lr, early_stopping])
         logging.info('Training took %f minutes', (time.time() - t_start) / 60.)
-        _export_model(model, path_output, name_prefix, '_body')
+        _export_model(model, path_output, name_prefix, '_head')
 
     # Unfreeze and continue training, to fine-tune.
     # Train longer if the result is not good.
@@ -191,7 +191,7 @@ def _main(path_dataset, path_anchors, path_weights=None, path_output='.',
     logging.info('Train on %i samples, val on %i samples, with batch size %i.',
                  num_train, num_val, config['batch-size']['full'])
     t_start = time.time()
-    model.fit_generator(_data_generator(lines_train, batch_size=config['batch-size']['head']),
+    model.fit_generator(_data_generator(lines_train, batch_size=config['batch-size']['full']),
                         steps_per_epoch=max(1, num_train // config['batch-size']['full']),
                         validation_data=_data_generator(lines_valid, augument=False),
                         validation_steps=max(1, num_val // config['batch-size']['full']),
