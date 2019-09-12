@@ -59,7 +59,7 @@ class YOLO(object):
             logging.warning('Unrecognized attribute name "%s"', name)
         return cls._DEFAULT_PARAMS.get(name)
 
-    def __init__(self, weights_path, anchors_path, classes_path, model_image_size,
+    def __init__(self, weights_path, anchors_path, classes_path, model_image_size=(None, None),
                  score=0.3, iou=0.45, nb_gpu=1, **kwargs):
         """
 
@@ -165,7 +165,7 @@ class YOLO(object):
     def detect_image(self, image):
         start = time.time()
 
-        if self.model_image_size != (None, None):
+        if isinstance(self.model_image_size, (list, tuple, set)) and all(self.model_image_size):
             assert self.model_image_size[0] % 32 == 0, 'Multiples of 32 required'
             assert self.model_image_size[1] % 32 == 0, 'Multiples of 32 required'
             boxed_image = letterbox_image(image, tuple(reversed(self.model_image_size)))

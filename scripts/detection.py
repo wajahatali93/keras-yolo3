@@ -40,8 +40,8 @@ def arg_params_yolo():
                         help='path to model weight file')
     parser.add_argument('-a', '--path_anchors', type=str,
                         help='path to anchor definitions')
-    parser.add_argument('--model_image_size', type=int, nargs=2,
-                        help='input image size for the model')
+    parser.add_argument('--model_image_size', type=int, nargs=2, required=False,
+                        help='input image size for the model', default=(None, None))
     parser.add_argument('-c', '--path_classes', type=str,
                         help='path to class definitions')
     parser.add_argument('--nb_gpu', type=int, help='Number of GPU to use',

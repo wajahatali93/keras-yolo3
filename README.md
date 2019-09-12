@@ -45,11 +45,13 @@ For more model and configuration please see  [YOLO website](http://pjreddie.com/
        --path_weights ./model_data/yolo.h5 \
        --path_anchors ./model_data/yolo_anchors.csv \
        --path_classes ./model_data/coco_classes.txt \
+       --model_image_size 608 608 \
        --path_output ./results \
        --path_image ./model_data/bike-car-dog.jpg \
        --path_video person.mp4
     ```
     For Full YOLOv3, just do in a similar way, just specify model path and anchor path with `--path_weights <model_file>` and `--path_anchors <anchor_file>`.
+    Note `model_image_size` is depending on used model, see width and height in model config `*.cfg`. Expected values are ` 608 608` for full YOLO and and `416 416` for Tiny YOLO.
 4. MultiGPU usage: use `--nb_gpu N` to use N GPUs. It is passed to the Keras [multi_gpu_model()](https://keras.io/utils/#multi_gpu_model).
 
 ---
