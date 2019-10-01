@@ -5,7 +5,7 @@ keras>=2.2.0, <2.2.5 # missing control_flow_ops in keras.backend
 pydot
 pydot-ng
 graphviz
-tensorflow>=1.4.0
+tensorflow>=1.4.0, <2.0.0
 pandas
 opencv-python
 tqdm

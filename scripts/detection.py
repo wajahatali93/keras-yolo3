@@ -95,11 +95,14 @@ def predict_image(yolo, path_image, path_output=None):
         pd.DataFrame(pred_items).to_csv(path_out_csv)
 
 
-def predict_video(yolo, path_video, path_output=None):
+def predict_video(yolo, path_video, path_output=None, show_stream=False):
     try:
         path_video = int(path_video)
     except Exception:  # not using web cam
         path_video = update_path(path_video)
+    else:  # using the (infinite) stream add option to terminate
+        show_stream = True
+
     # Create a video capture object to read videos
     try:
         video = cv2.VideoCapture(path_video)
@@ -111,7 +114,8 @@ def predict_video(yolo, path_video, path_output=None):
         video_fps = video.get(cv2.CAP_PROP_FPS)
         video_size = (int(video.get(cv2.CAP_PROP_FRAME_WIDTH)),
                       int(video.get(cv2.CAP_PROP_FRAME_HEIGHT)))
-        name = os.path.splitext(os.path.basename(path_video))[0]
+        name = os.path.splitext(os.path.basename(path_video))[0] \
+            if isinstance(path_video, str) else str(path_video)
         path_out = os.path.join(path_output, name + VISUAL_EXT + '.avi')
         logging.info('export video: %s', path_out)
         out_vid = cv2.VideoWriter(path_out, VIDEO_FORMAT, video_fps, video_size)
@@ -138,10 +142,10 @@ def predict_video(yolo, path_video, path_output=None):
             frame_preds.append(pred_items)
             with open(path_json, 'w') as fp:
                 json.dump(frame_preds, fp)
-        else:
-            # show frame
+        if show_stream:
             cv2.imshow('YOLOv3', frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
+                cv2.destroyWindow('YOLOv3')
                 break
 
     if out_vid:
