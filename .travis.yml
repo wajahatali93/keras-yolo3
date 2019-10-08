@@ -3,6 +3,10 @@
 
 language: python
 
+env:
+  global:
+    - DISPLAY=""
+
 matrix:
   include:
 #    - python: 2.7

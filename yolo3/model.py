@@ -421,7 +421,8 @@ def create_model(input_shape, anchors, num_classes, weights_path=None, model_fac
     logging.debug('Create YOLOv3 (model_factor: %i) model with %i anchors and %i classes.',
                   model_factor, num_anchors, num_classes)
 
-    if weights_path is not None:
+    if weights_path:
+        assert os.path.isfile(weights_path), 'missing file: %s' % weights_path
         # model_body = load_model(weights_path, compile=False)
         model_body.load_weights(weights_path, by_name=True, skip_mismatch=True)
         logging.info('Load model "%s".', weights_path)

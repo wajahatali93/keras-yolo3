@@ -7,6 +7,7 @@ import logging
 
 import numpy as np
 from PIL import ImageDraw
+import matplotlib.pylab as plt
 
 
 def draw_bounding_box(image, predicted_class, box, score, color, thickness):
@@ -55,3 +56,38 @@ def draw_bounding_box(image, predicted_class, box, score, color, thickness):
     draw.text(list(text_origin), label_score, fill=(0, 0, 0))
     del draw
     return image
+
+
+def _draw_bbox(ax, bbox, color='r'):
+    x_min, y_min, x_max, y_max = bbox[:4]
+    if (x_max - x_min) * (y_max - y_min) == 0:
+        return
+    x = [x_min, x_min, x_max, x_max, x_min]
+    y = [y_min, y_max, y_max, y_min, y_min]
+    ax.plot(x, y, color=color)
+
+
+def show_augment_data(image_in, bboxes, img_data, box_data):
+    """visualise image_data and box_data
+
+    :param ndaaray image_in: original image
+    :param ndaaray bboxes: original annotation
+    :param ndaaray img_data: augmented image
+    :param ndaaray box_data: adjusted bboxes
+    :return:
+
+    >>> img = np.random.random((250, 200, 3))
+    >>> box = [10, 40, 50, 90, 0]
+    >>> show_augment_data(img, [box], img, [box, [0] * 5])  # doctest: +ELLIPSIS
+    <...>
+    """
+    fig, axarr = plt.subplots(ncols=2, figsize=(12, 5))
+    axarr[0].set_title('Original image with annotation')
+    axarr[0].imshow(np.array(image_in))
+    for box in bboxes:
+        _draw_bbox(axarr[0], box)
+    axarr[1].set_title('Augmented image with adjusted bboxes')
+    axarr[1].imshow(np.array(img_data))
+    for box in box_data:
+        _draw_bbox(axarr[1], box)
+    return fig

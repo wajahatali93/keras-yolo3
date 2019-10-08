@@ -82,11 +82,11 @@ def letterbox_image(image, size):
     return new_image
 
 
-def _rand(low=0, high=1):
+def _rand(a=0, b=1):
     """ random number in given range
 
-    :param float low:
-    :param float high:
+    :param float a: any number
+    :param float b: any number
     :return float:
 
     >>> 0 <= _rand() <= 1
@@ -95,7 +95,8 @@ def _rand(low=0, high=1):
     >>> _rand(1, 1)
     1
     """
-    assert low <= high, 'lower (%f) has to samller or equal to higher (%f)' % (low, high)
+    low = min(a, b)
+    high = max(a, b)
     if low == high:
         return low
     return np.random.rand() * (high - low) + low
@@ -131,10 +132,10 @@ def image_open(path_img):
     >>> image_open(path_img).size
     (520, 518)
     """
-    return Image.open(path_img)
+    return Image.open(update_path(path_img))
 
 
-def randomize_image_color(image, hue, sat, val):
+def augment_image_color(image, hue, sat, val):
     """Randomize image colour in HSV spectrum in given range.
 
     :param image: Input image
@@ -144,192 +145,362 @@ def randomize_image_color(image, hue, sat, val):
     :return:
 
     >>> img = image_open(os.path.join(update_path('model_data'), 'bike-car-dog.jpg'))
-    >>> randomize_image_color(img, 0.1, 1.1, 1.1).shape
+    >>> augment_image_color(img, 0.1, 1.1, 1.2).shape
     (518, 520, 3)
     """
     hue = _rand(-hue, hue)
-    sat = _rand(1, sat) if _rand() < .5 else 1 / _rand(1, sat)
-    val = _rand(1, val) if _rand() < .5 else 1 / _rand(1, val)
-    x = rgb_to_hsv(np.array(image) / 255.)
-    x[..., 0] += hue
-    x[..., 0][x[..., 0] > 1] -= 1
-    x[..., 0][x[..., 0] < 0] += 1
-    x[..., 1] *= sat
-    x[..., 2] *= val
-    x[x > 1] = 1
-    x[x < 0] = 0
-    image_data = hsv_to_rgb(x)  # numpy array, 0 to 1
+    sat = _rand(1. / sat, sat)
+    val = _rand(1. / val, val)
+
+    img = rgb_to_hsv(np.array(image) / 255.)
+    img[..., 0] += hue
+    img[..., 0][img[..., 0] > 1] -= 1
+    img[..., 0][img[..., 0] < 0] += 1
+    img[..., 1] *= sat
+    img[..., 2] *= val
+    image_data = hsv_to_rgb(img)
+
+    # numpy array, 0 to 1
+    assert np.max(image_data) < 2.  # check the range is about (0, 1)
+    image_data = np.clip(image_data, 0, 1)
     return image_data
 
 
-def randomize_bbox(box, max_boxes, flip_horizontal, flip_vertical, iw, ih, h, w, nw, nh, dx, dy):
-    box[:, [0, 2]] = box[:, [0, 2]] * nw / iw + dx
-    box[:, [1, 3]] = box[:, [1, 3]] * nh / ih + dy
+def adjust_bboxes(bbox, input_shape, flip_horizontal, flip_vertical, scale_x, scale_y, dx, dy):
+    """randomize bounding boxes
+
+    :param ndarray boxes:
+    :param int max_boxes:
+    :param bool flip_horizontal:
+    :param bool flip_vertical:
+    :param int img_w: image width
+    :param int img_h: image height
+    :param int cnn_h: input CNN height
+    :param int cnn_w: input CNN width
+    :param int new_w:
+    :param int new_h:
+    :param int dx: translation in X axis
+    :param int dy: translation in Y axis
+    :return ndarray:
+
+    >>> np.random.seed(0)
+    >>> bboxes = np.array([[10, 15, 20, 25, 0], [3, 5, 4, 10, 1]])
+    >>> adjust_bboxes(bboxes, (20, 20), True, False, 1., 1., 0, 0)
+    array([[ 0, 15, 10, 20,  0],
+           [16,  5, 17, 10,  1]])
+    >>> adjust_bboxes(bboxes, (20, 20), False, True, 1., 1., 0, 0)
+    array([[10,  0, 20,  5,  0],
+           [ 3, 10,  4, 15,  1]])
+    >>> adjust_bboxes(bboxes, (20, 20), False, False, 1.2, 0.8, 0, 0)
+    array([[12, 12, 20, 20,  0],
+           [ 3,  4,  4,  8,  1]])
+    >>> adjust_bboxes(bboxes, (20, 20), False, False, 1., 1., -2, 3)
+    array([[ 8, 18, 18, 20,  0],
+           [ 1,  8,  2, 13,  1]])
+    """
+    boxes = bbox.copy()  # make a copy
+    cnn_h, cnn_w = input_shape
+
+    boxes[:, [0, 2]] = boxes[:, [0, 2]] * scale_x + dx
+    boxes[:, [1, 3]] = boxes[:, [1, 3]] * scale_y + dy
     if flip_horizontal:
-        box[:, [0, 2]] = w - box[:, [2, 0]]
+        boxes[:, [0, 2]] = cnn_w - boxes[:, [2, 0]]
     if flip_vertical:
-        box[:, [1, 3]] = h - box[:, [3, 1]]
-    box[:, 0:2][box[:, 0:2] < 0] = 0
-    box[:, 2][box[:, 2] > w] = w
-    box[:, 3][box[:, 3] > h] = h
-    box_w = box[:, 2] - box[:, 0]
-    box_h = box[:, 3] - box[:, 1]
-    box = box[np.logical_and(box_w > 1, box_h > 1)]  # discard invalid box
-    if len(box) > max_boxes:
-        box = box[:max_boxes]
-    return box
+        boxes[:, [1, 3]] = cnn_h - boxes[:, [3, 1]]
+
+    boxes = _filter_empty_bboxes(boxes, cnn_w, cnn_h)
+    return boxes
 
 
-def normalize_image_bbox(image, bboxes, input_shape, max_boxes, resize_img):
+def normalize_image_bboxes(image, bboxes, input_shape, resize_img,
+                           allow_rnd_shift=True, interp=Image.BICUBIC):
     """normalize image bounding bbox
 
     :param Image image:
-    :param ndarray box:
+    :param ndarray boxes: bounding boxes
     :param tuple(int,int) input_shape:
-    :param int max_boxes:
-    :param bool resize_img:
+    :param int max_boxes: maximum nb bounding boxes
+    :param bool resize_img: allow resize image to CNN input shape
+    :param bool allow_rnd_shift: allow shifting image not only centered crop
+    :param int interp: image interpolation
     :return:
 
     >>> np.random.seed(0)
-    >>> img = image_open(os.path.join(update_path('model_data'), 'bike-car-dog.jpg'))
-    >>> bboxes = np.array([[100, 150, 200, 250, 0], [300, 50, 400, 200, 1]])
-    >>> image_data, box_data = normalize_image_bbox(img, bboxes, (416, 416), 5, resize_img=True)
-    >>> image_data.shape
-    (416, 416, 3)
-    >>> box_data  # doctest: +ELLIPSIS
-    array([[240.,  41., 320., 161.,   1.],
-           [ 80., 121., 160., 201.,   0.],
-           [  0.,   0.,   0.,   0.,   0.],
-           [  0.,   0.,   0.,   0.,   0.],
-           [  0.,   0.,   0.,   0.,   0.]])
-    >>> image_data, _ = normalize_image_bbox(img, bboxes, (416, 416), 5, resize_img=False)
-    >>> image_data.shape
-    (518, 520, 3)
+    >>> img = np.zeros((15, 20), dtype=np.uint8)
+    >>> img[5:10, 10:15] = 255
+    >>> img = Image.fromarray(img)
+    >>> bboxes = np.array([[10, 15, 20, 25, 0], [3, 5, 4, 10, 1]])
+    >>> image_data, box_data = normalize_image_bboxes(img, bboxes, (10, 10), resize_img=True,
+    ...                                             interp=Image.NEAREST)
+    >>> np.round(image_data, 1)[:, :, 0]  # doctest: +NORMALIZE_WHITESPACE
+    array([[0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 1. , 1. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 1. , 1. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 1. , 1. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]])
+    >>> box_data  # doctest: +NORMALIZE_WHITESPACE
+    array([[ 5,  8, 10, 10,  0],
+           [ 1,  3,  2,  6,  1]])
+    >>> image_data, box_data = normalize_image_bboxes(img, bboxes, (25, 25), resize_img=True,
+    ...                                             interp=Image.NEAREST)
+    >>> np.round(image_data, 1)[:, :, 0]  # doctest: +ELLIPSIS
+    array([[0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           ...
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 1. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 1. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 1. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 1. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 1. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 1. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           ...
+           [0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , 0. , ..., 0. , 0. , 0. , 0. , 0. , 0. , 0. ],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, ..., 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]])
+    >>> box_data
+    array([[12, 23, 25, 25,  0],
+           [ 3, 11,  5, 17,  1]])
+    >>> image_data, box_data = normalize_image_bboxes(img, bboxes, (15, 15), resize_img=False,
+    ...                                             interp=Image.NEAREST)
+    >>> np.round(image_data, 1)[:, :, 0]  # doctest: +NORMALIZE_WHITESPACE
+    array([[0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 1., 1., 1., 1., 1., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.],
+           [0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.]])
+    >>> box_data
+    array([[ 2,  5,  3, 10,  1]])
     """
-    iw, ih = image.size
-    h, w = input_shape
-    scale = min(float(w) / iw, float(h) / ih)
-    nw = int(iw * scale)
-    nh = int(ih * scale)
-    dx = (w - nw) // 2
-    dy = (h - nh) // 2
-
     if resize_img:
-        image = image.resize((nw, nh), Image.BICUBIC)
-        new_image = Image.new('RGB', (w, h), (128, 128, 128))
-        new_image.paste(image, (dx, dy))
-        image_data = np.array(new_image) / 255.
+        img_data, scale, (dx, dy) = _scale_image_to_cnn(
+            image, input_shape, allow_rnd_shift=allow_rnd_shift, interp=interp)
     else:
-        image_data = np.array(image) / 255.
+        img_data, scale, (dx, dy) = _crop_image_to_cnn(image, input_shape, allow_rnd_shift)
 
-    # correct boxes
+    if len(bboxes) == 0:
+        return img_data, np.zeros((1, 5))
+
+    bboxes = bboxes.copy()
+    np.random.shuffle(bboxes)
+    bboxes[:, [0, 2]] = bboxes[:, [0, 2]] * scale + dx
+    bboxes[:, [1, 3]] = bboxes[:, [1, 3]] * scale + dy
+
+    bboxes = _filter_empty_bboxes(bboxes, *input_shape)
+
+    return img_data, bboxes
+
+
+def _scale_image_to_cnn(image, input_shape, scaling=1., allow_rnd_shift=True,
+                        interp=Image.BICUBIC):
+    """scale image to fit CNN input
+
+    :param ndarray image: original image
+    :param tuple(int,int) input_shape:CNN input size
+    :param float scaling: scaling factor
+    :param bool allow_rnd_shift: allow shifting image not only centered crop
+    :param interp: image interpolation
+    :return:
+    """
+    img_w, img_h = image.size
+    cnn_h, cnn_w = input_shape
+
+    scale = min(float(cnn_w) / img_w, float(cnn_h) / img_h) * scaling
+    new_w = int(img_w * scale)
+    new_h = int(img_h * scale)
+    dx, dy = _image_shift(cnn_w, cnn_h, new_w, new_h, allow_rnd_shift)
+
+    image = image.resize((new_w, new_h), interp)
+
+    new_image = Image.new('RGB', (cnn_w, cnn_h), (128, 128, 128))
+    new_image.paste(image, (dx, dy))
+    img_data = np.array(new_image) / 255.
+
+    return img_data, scale, (dx, dy)
+
+
+def _crop_image_to_cnn(image, input_shape, allow_rnd_shift=True):
+    """crop image according the CNN input size
+
+    :param ndarray image: original image
+    :param tuple(int,int) input_shape:CNN input size
+    :param allow_rnd_shift:
+    :return:
+    """
+    img_w, img_h = image.size
+    cnn_h, cnn_w = input_shape
+    dx, dy = _image_shift(cnn_w, cnn_h, img_w, img_h, allow_rnd_shift)
+
+    new_image = Image.new('RGB', (cnn_w, cnn_h), (128, 128, 128))
+    new_image.paste(image, (dx, dy))
+    img_data = np.array(new_image) / 255.
+
+    return img_data, 1., (dx, dy)
+
+
+def _image_shift(cnn_w, cnn_h, img_w, img_h, allow_rnd_shift):
+    """compute position/shift for inserting image to CNN shape
+
+    :param int cnn_w: CNN width
+    :param int cnn_h: CNN height
+    :param int img_w: image width
+    :param int img_h: image height
+    :param bool allow_rnd_shift:
+    :return tuple(int,int): shift
+    """
+    diff_w = cnn_w - img_w
+    diff_h = cnn_h - img_h
+    if allow_rnd_shift:
+        diff_w = diff_w // 2 if img_w > cnn_w else diff_w
+        diff_h = diff_h // 2 if img_h > cnn_h else diff_h
+        dx = int(_rand(0, diff_w))
+        dy = int(_rand(0, diff_h))
+    else:
+        dx = diff_w // 2
+        dy = diff_h // 2
+    return dx, dy
+
+
+def _copy_bboxes(boxes, adj_box_data, max_boxes, check_dropped=True):
+    """copy the bounding boxes to preferred sized array
+
+    :param list(list) boxes: input boxes
+    :param ndarray adj_box_data: augmented boxes
+    :param int|None max_boxes: maximal number of boxes
+    :param bool check_dropped: show warning if the nb augmented boxes is lower then input
+    :return:
+    """
     box_data = np.zeros((max_boxes, 5))
-    if len(bboxes) > 0:
-        np.random.shuffle(bboxes)
-        if len(bboxes) > max_boxes:
-            bboxes = bboxes[:max_boxes]
-        bboxes[:, [0, 2]] = bboxes[:, [0, 2]] * scale + dx
-        bboxes[:, [1, 3]] = bboxes[:, [1, 3]] * scale + dy
-        box_data[:len(bboxes)] = bboxes
-
-    return image_data, box_data
+    if check_dropped and len(adj_box_data) < len(boxes):
+        logging.debug('Warning: %i of %i (%i%%) generated boxes was filtered out',
+                      len(boxes) - len(adj_box_data), len(boxes),
+                      int(float(len(boxes) - len(adj_box_data)) / len(boxes) * 100))
+    nb_boxes = min(max_boxes, len(adj_box_data))
+    box_data[:nb_boxes] = adj_box_data
+    return box_data
 
 
-def get_random_data(annotation_line, input_shape, augument=True, max_boxes=20,
-                    jitter=0.3, hue=.1, sat=1.5, val=1.5, resize_img=True,
-                    flip_horizontal=True, flip_vertical=False):
-    """augument pre-processing for real-time data augmentation
+def _filter_empty_bboxes(boxes, cnn_w, cnn_h):
+    boxes[:, [0, 2]] = np.clip(boxes[:, [0, 2]], 0, cnn_w)
+    boxes[:, [1, 3]] = np.clip(boxes[:, [1, 3]], 0, cnn_h)
 
-    :param annotation_line:
-    :param input_shape:
-    :param bool randomize:
-    :param int max_boxes:
+    box_w = boxes[:, 2] - boxes[:, 0]
+    box_h = boxes[:, 3] - boxes[:, 1]
+    # discard invalid box
+    boxes = boxes[np.logical_and(box_w > 0, box_h > 0)]
+    return boxes
+
+
+def get_augmented_data(annotation_line, input_shape, augment=True, max_boxes=20,
+                       hue=.1, sat=1.5, val=1.5, jitter=0.3, img_scaling=1.2,
+                       flip_horizontal=True, flip_vertical=False, resize_img=True,
+                       allow_rnd_shift=True, interp=Image.BICUBIC):
+    """augment pre-processing for real-time data augmentation
+
+    :param str annotation_line:
+    :param tuple(int,int) input_shape: CNN input size
+    :param bool augment: perform augmentation
+    :param int max_boxes: maximal number of training bounding boxes
     :param float jitter:
-    :param float hue:
-    :param float sat:
-    :param float val:
-    :param bool resize_img:
-    :param bool flip_horizontal:
-    :param bool flip_vertical:
+    :param float hue: range of change of HSV color HUE
+    :param float sat: range of change of HSV color SAT
+    :param float val: range of change of HSV color value
+    :param float img_scaling: upper image scaling
+    :param bool flip_horizontal: allow random flop image/boxes vertical
+    :param bool flip_vertical: allow random flop image/boxes horizontal
+    :param bool resize_img: resize image to fit fully to CNN
+    :param bool allow_rnd_shift: allow shifting image not only centered crop
+    :param int interp: image interpolation
     :return:
 
     >>> np.random.seed(0)
     >>> path_img = os.path.join(update_path('model_data'), 'bike-car-dog.jpg')
     >>> line = path_img + ' 100,150,200,250,0 300,50,400,200,1'
-    >>> image_data, box_data = get_random_data(line, (416, 416))
+    >>> image_data, box_data = get_augmented_data(line, (416, 416), augment=True)
     >>> image_data.shape
     (416, 416, 3)
     >>> box_data  # doctest: +ELLIPSIS
-    array([[137., 209., 232., 314.,   0.],
-           [327., 105., 416., 262.,   1.],
+    array([[247.,  39., 330., 163.,   1.],
+           [ 81., 122., 164., 204.,   0.],
            [  0.,   0.,   0.,   0.,   0.],
            ...
            [  0.,   0.,   0.,   0.,   0.]])
-    >>> image_data, box_data = get_random_data(line, (416, 416), augument=False)
+    >>> image_data, box_data = get_augmented_data(line, (416, 416), augment=False)
     >>> image_data.shape
     (416, 416, 3)
     >>> box_data  # doctest: +ELLIPSIS
-    array([[240.,  41., 320., 161.,   1.],
-           [ 80., 121., 160., 201.,   0.],
+    array([[ 80., 120., 160., 200.,   0.],
+           [240.,  40., 320., 160.,   1.],
            [  0.,   0.,   0.,   0.,   0.],
            ...
            [  0.,   0.,   0.,   0.,   0.]])
     """
-    line = annotation_line.split()
-    image = image_open(line[0])
-    box = np.array([np.array(list(map(int, box.split(',')))) for box in line[1:]])
+    line_split = annotation_line.split()
+    image = image_open(line_split[0])
+    boxes = np.array([list(map(float, box.split(',')))
+                      for box in line_split[1:]]).astype(int)
 
-    if not augument:
+    if not augment:
         # resize image
-        image_data, box_data = normalize_image_bbox(image, box, input_shape, max_boxes,
-                                                    resize_img=True)
-        return image_data, box_data
-
-    # collect inputs
-    iw, ih = image.size
-    h, w = input_shape
+        img_data, adj_box_data = normalize_image_bboxes(
+            image, boxes, input_shape, resize_img=resize_img,
+            allow_rnd_shift=allow_rnd_shift, interp=interp)
+        box_data = _copy_bboxes(boxes, adj_box_data, max_boxes, check_dropped=False)
+        # yolo3.visual.show_augment_data(image_open(line_split[0]), boxes, img_data, box_data)
+        return img_data, box_data
 
     # resize image
-    new_ar = w / h * _rand(1 - jitter, 1 + jitter) / _rand(1 - jitter, 1 + jitter)
-    scale = _rand(.25, 2)
-    if new_ar < 1:
-        nh = int(scale * h)
-        nw = int(nh * new_ar)
+    # new_ar = cnn_w / cnn_h * _rand(1 - jitter, 1 + jitter) / _rand(1 - jitter, 1 + jitter)
+    scaling = _rand(1. / img_scaling, img_scaling)
+    if resize_img:
+        img_data, scaling, (dx, dy) = _scale_image_to_cnn(
+            image, input_shape, scaling, allow_rnd_shift=allow_rnd_shift, interp=interp)
     else:
-        nw = int(scale * w)
-        nh = int(nw / new_ar)
-    image = image.resize((nw, nh), Image.BICUBIC)
-
-    # place image
-    dx = int(_rand(0, abs(w - nw)))
-    dy = int(_rand(0, abs(h - nh)))
-    new_image = Image.new('RGB', (w, h), (128, 128, 128))
-    new_image.paste(image, (dx, dy))
-    image = new_image
+        img_data, scaling, (dx, dy) = _crop_image_to_cnn(image, input_shape, allow_rnd_shift)
+    image = Image.fromarray(np.round(img_data * 255).astype(np.uint8))
 
     # flip image or not
-    flip_horizontal = _rand() < .5 if flip_horizontal else False
+    flip_horizontal = np.random.random() < 0.5 and flip_horizontal
     if flip_horizontal:
         image = image.transpose(Image.FLIP_LEFT_RIGHT)
-    flip_vertical = _rand() < .5 if flip_vertical else False
+    flip_vertical = np.random.random() < 0.5 and flip_vertical
     if flip_vertical:
         image = image.transpose(Image.FLIP_TOP_BOTTOM)
 
     # distort image
-    image_data = randomize_image_color(image, hue, sat, val)
+    img_data = augment_image_color(image, hue, sat, val)
 
-    # correct boxes
-    box_data = np.zeros((max_boxes, 5))
-    if len(box) > 0:
-        np.random.shuffle(box)
-        # NOTE: due to some randomisation some boxed can be out and fitered out
-        rand_data = randomize_bbox(box, max_boxes, flip_horizontal, flip_vertical,
-                                   iw, ih, h, w, nw, nh, dx, dy)
-        if len(rand_data) < len(box):
-            logging.debug('Warning: some generated boxes was filtered out')
-        box_data[:len(rand_data)] = rand_data
+    if len(boxes) == 0:
+        max_boxes = max_boxes if max_boxes else 1
+        return img_data, np.zeros((max_boxes, 5))
 
-    return image_data, box_data
+    np.random.shuffle(boxes)
+    # NOTE: due to some randomisation some boxed can be out and filtered out
+    adj_box_data = adjust_bboxes(boxes, input_shape, flip_horizontal, flip_vertical,
+                                 scaling, scaling, dx, dy)
+    box_data = _copy_bboxes(boxes, adj_box_data, max_boxes)
+    # yolo3.visual.show_augment_data(image_open(line_split[0]), boxes, img_data, box_data)
+    return img_data, box_data
 
 
 def get_class_names(path_classes):
@@ -474,26 +645,29 @@ def preprocess_true_boxes(true_boxes, input_shape, anchors, num_classes):
 
 
 def data_generator(annotation_lines, input_shape, anchors, nb_classes,
-                   batch_size=1, augument=True, max_boxes=20, jitter=0.3, resize_img=True,
+                   batch_size=1, augment=True, max_boxes=20,
+                   jitter=0.3, img_scaling=1.2, resize_img=True, allow_rnd_shift=True,
                    color_hue=0.1, color_sat=1.5, color_val=1.5,
                    flip_horizontal=True, flip_vertical=False, nb_threads=1):
     """data generator for fit_generator
 
     :param list(str) annotation_lines:
     :param int batch_size:
-    :param tuple(int,int) input_shape:
     :param ndarray anchors:
     :param int nb_classes:
-    :param bool randomize:
-    :param int max_boxes:
+    :param tuple(int,int) input_shape: CNN input size
+    :param bool augment: perform augmentation
+    :param int max_boxes: maximal number of training bounding boxes
     :param float jitter:
-    :param bool resize_img:
-    :param float color_hue:
-    :param float color_sat:
-    :param float color_val:
-    :param bool flip_horizontal:
-    :param bool flip_vertical:
-    :param float|int nb_threads:
+    :param float color_hue: range of change of HSV color HUE
+    :param float color_sat: range of change of HSV color SAT
+    :param float color_val: range of change of HSV color value
+    :param float img_scaling: upper image scaling
+    :param bool flip_horizontal: allow random flop image/boxes vertical
+    :param bool flip_vertical: allow random flop image/boxes horizontal
+    :param bool resize_img: resize image to fit fully to CNN
+    :param bool allow_rnd_shift: allow shifting image not only centered crop
+    :param float|int nb_threads: nb threads running in parallel
     :return:
 
     >>> np.random.seed(0)
@@ -506,7 +680,7 @@ def data_generator(annotation_lines, input_shape, anchors, nb_classes,
     2
     >>> [b.shape for b in batch[0]]
     [(1, 416, 416, 3), (1, 13, 13, 3, 8), (1, 26, 26, 3, 8), (1, 52, 52, 3, 8)]
-    >>> gen = data_generator([line], (416, 416), anchors, 3, augument=False)
+    >>> gen = data_generator([line], (416, 416), anchors, 3, augment=False)
     >>> batch = next(gen)
     >>> len(batch)
     2
@@ -517,28 +691,35 @@ def data_generator(annotation_lines, input_shape, anchors, nb_classes,
     circ_i = 0
     if nb_lines == 0 or batch_size <= 0:
         return None
+
+    color_hue = abs(color_hue)
+    color_sat = color_sat if color_sat > 1 else 1. / color_sat
+    color_val = color_val if color_val > 1 else 1. / color_val
+
     nb_threads = nb_workers(nb_threads)
     pool = ProcessPool(nb_threads) if nb_threads > 1 else None
     _wrap_rand_data = partial(
-        get_random_data,
+        get_augmented_data,
         input_shape=input_shape,
-        augument=augument,
+        augment=augment,
         max_boxes=max_boxes,
         jitter=jitter,
         resize_img=resize_img,
+        img_scaling=img_scaling,
+        allow_rnd_shift=allow_rnd_shift,
         hue=color_hue,
         sat=color_sat,
         val=color_val,
         flip_horizontal=flip_horizontal,
-        flip_vertical=flip_vertical
+        flip_vertical=flip_vertical,
     )
 
     while True:
         if circ_i < batch_size:
             # shuffle while you are starting new cycle
             np.random.shuffle(annotation_lines)
-        image_data = []
-        box_data = []
+        batch_image_data = []
+        batch_box_data = []
 
         # create the list of lines to be loaded in batch
         annot_lines = annotation_lines[circ_i:circ_i + batch_size]
@@ -549,16 +730,15 @@ def data_generator(annotation_lines, input_shape, anchors, nb_classes,
         # multiprocessing loading of batch data
         map_process = pool.imap if pool else map
         for image, box in map_process(_wrap_rand_data, annot_lines):
-            image_data.append(image)
-            box_data.append(box)
+            batch_image_data.append(image)
+            batch_box_data.append(box)
 
         circ_i = (circ_i + batch_size) % nb_lines
 
-        image_data = np.array(image_data)
-        box_data = np.array(box_data)
-        y_true = preprocess_true_boxes(box_data, input_shape,
-                                       anchors, nb_classes)
-        batch = [image_data, *y_true], np.zeros(batch_size)
+        batch_image_data = np.array(batch_image_data)
+        batch_box_data = np.array(batch_box_data)
+        y_true = preprocess_true_boxes(batch_box_data, input_shape, anchors, nb_classes)
+        batch = [batch_image_data, *y_true], np.zeros(batch_size)
         yield batch
         gc.collect()
 
@@ -581,8 +761,8 @@ def generator_bottleneck(annotation_lines, batch_size, input_shape, anchors, nb_
         b2 = np.zeros((batch_size, bottlenecks[2].shape[1],
                        bottlenecks[2].shape[2], bottlenecks[2].shape[3]))
         for b in range(batch_size):
-            _, box = get_random_data(annotation_lines[circ_i], input_shape,
-                                     augument=randomize, resize_img=False)
+            _, box = get_augmented_data(annotation_lines[circ_i], input_shape,
+                                        augment=randomize, img_scaling=1.)
             box_data.append(box)
             b0[b] = bottlenecks[0][circ_i]
             b1[b] = bottlenecks[1][circ_i]
