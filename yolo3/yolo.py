@@ -98,7 +98,7 @@ class YOLO(object):
             config = tf.ConfigProto(allow_soft_placement=True,
                                     log_device_placement=False)
             config.gpu_options.force_gpu_compatible = True
-            # config.gpu_options.per_process_gpu_memory_fraction = 0.5
+            config.gpu_options.per_process_gpu_memory_fraction = 0.49
             # Don't pre-allocate memory; allocate as-needed
             config.gpu_options.allow_growth = True
 
@@ -239,7 +239,8 @@ class YOLO(object):
         return out_boxes, out_scores, out_classes
 
     def _close_session(self):
-        self.sess.close()
+        if self.sess is not None:
+            self.sess.close()
 
     def __del__(self):
         self._close_session()
