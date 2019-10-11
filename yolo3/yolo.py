@@ -61,7 +61,7 @@ class YOLO(object):
         return cls._DEFAULT_PARAMS.get(name)
 
     def __init__(self, weights_path, anchors_path, classes_path, model_image_size=(None, None),
-                 score=0.3, iou=0.45, nb_gpu=1, **kwargs):
+                 score=0.3, iou=0.45, nb_gpu=1, gpu_frac=None, **kwargs):
         """
 
         :param str weights_path: path to loaded model weights, e.g. 'model_data/tiny-yolo.h5'
@@ -71,6 +71,7 @@ class YOLO(object):
         :param float iou:
         :param tuple(int,int) model_image_size: e.g. for tiny (416, 416)
         :param int nb_gpu:
+        :param float gpu_frac: fraction of GPU memory to reserve, None for automatic
         :param kwargs:
         """
         self.__dict__.update(kwargs)  # and update with user overrides
@@ -86,11 +87,11 @@ class YOLO(object):
             os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
         self.class_names = get_class_names(self.classes_path)
         self.anchors = get_anchors(self.anchors_path)
-        self._open_session()
+        self._open_session(gpu_frac)
         self.boxes, self.scores, self.classes = self._create_model()
         self._generate_class_colors()
 
-    def _open_session(self):
+    def _open_session(self, gpu_frac):
         if K.backend() == 'tensorflow':
             import tensorflow as tf
             from keras.backend.tensorflow_backend import set_session
@@ -98,7 +99,8 @@ class YOLO(object):
             config = tf.ConfigProto(allow_soft_placement=True,
                                     log_device_placement=False)
             config.gpu_options.force_gpu_compatible = True
-            config.gpu_options.per_process_gpu_memory_fraction = 0.49
+            if gpu_frac is not None:
+                config.gpu_options.per_process_gpu_memory_fraction = gpu_frac
             # Don't pre-allocate memory; allocate as-needed
             config.gpu_options.allow_growth = True
 
