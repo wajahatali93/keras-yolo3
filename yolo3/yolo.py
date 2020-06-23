@@ -98,11 +98,21 @@ class YOLO(object):
 
             config = tf.ConfigProto(allow_soft_placement=True,
                                     log_device_placement=False)
-            config.gpu_options.force_gpu_compatible = True
-            if gpu_frac is not None:
-                config.gpu_options.per_process_gpu_memory_fraction = gpu_frac
-            # Don't pre-allocate memory; allocate as-needed
-            config.gpu_options.allow_growth = True
+
+            # If the user has specified non-GPU execution, 
+            # use CPU, and do not configure GPU related behavior of the session,
+            # Otherwise
+            # configure GPU related behavior of the session
+            if ('cpu_only', True) in kwargs.items():
+                config = tf.ConfigProto(
+                        device_count = {'GPU': 0}
+                        )
+            else:
+                config.gpu_options.force_gpu_compatible = True
+                if gpu_frac is not None:
+                    config.gpu_options.per_process_gpu_memory_fraction = gpu_frac
+                # Don't pre-allocate memory; allocate as-needed
+                config.gpu_options.allow_growth = True
 
             sess = tf.Session(config=config)
             set_session(sess)
