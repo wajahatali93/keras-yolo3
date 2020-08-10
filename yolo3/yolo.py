@@ -95,6 +95,11 @@ class YOLO(object):
         if K.backend() == 'tensorflow':
             import tensorflow as tf
             from keras.backend.tensorflow_backend import set_session
+            if tf.__version__[0] == '2':
+                logging.debug("Tensorflow version 2.X detected, enabling compatibility with version 1.X.")
+                import tensorflow.compat.v1 as tf
+                tf.disable_v2_behavior()
+                from tensorflow.python.keras.backend import set_session
 
             config = tf.ConfigProto(allow_soft_placement=True,
                                     log_device_placement=False)
@@ -114,7 +119,10 @@ class YOLO(object):
             sess = tf.Session(config=config)
             set_session(sess)
 
-        self.sess = K.get_session()
+        if tf.__version__[0] == '2':
+            self.sess = tf.keras.backend.get_session()
+        else:
+            self.sess = K.get_session()
 
     def _create_model(self):
         # weights_path = update_path(self.weights_path)
