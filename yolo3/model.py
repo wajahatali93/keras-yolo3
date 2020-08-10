@@ -7,6 +7,11 @@ import logging
 from functools import wraps
 
 import tensorflow as tf
+if tf.__version__[0] == '2':
+    logging.debug("Tensorflow version 2.X detected, enabling compatibility with version 1.X.")
+    import tensorflow.compat.v1 as tf
+    tf.disable_v2_behavior()
+
 from keras import backend as K
 from keras.layers import Conv2D, Add, ZeroPadding2D, UpSampling2D, Concatenate, MaxPooling2D
 from keras.layers import Input, Lambda
