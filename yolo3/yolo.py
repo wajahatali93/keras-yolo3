@@ -93,7 +93,8 @@ class YOLO(object):
 
     def _open_session(self, gpu_frac):
         if K.backend() == 'tensorflow':
-            import tensorflow as tf
+            import tensorflow.compat.v1 as tf
+            tf.disable_v2_behavior()
             from keras.backend.tensorflow_backend import set_session
             if tf.__version__[0] == '2':
                 logging.debug("Tensorflow version 2.X detected, enabling compatibility with version 1.X.")
